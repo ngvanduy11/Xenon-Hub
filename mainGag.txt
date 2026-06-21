@@ -1,0 +1,1063 @@
+local Fluent = loadstring(game:HttpGet(""))()
+local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
+local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
+
+local Modules = {}
+
+local Players = game:GetService("Players")
+local LP = Players.LocalPlayer
+local RS = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local HttpService = game:GetService("HttpService")
+local CollectionService = game:GetService("CollectionService")
+local PPS = game:GetService("ProximityPromptService")
+PPS.MaxPromptsVisible = 100
+
+local Networking = require(RS:WaitForChild("SharedModules"):WaitForChild("Networking"))
+local Packet = RS.SharedModules.Packet.RemoteEvent
+local hide = LP:FindFirstChild("HideCollectProximityPrompts")
+
+local SeedData = require(RS:WaitForChild("SharedModules"):WaitForChild("SeedData"))
+local seedNamesList = {}
+for _, data in ipairs(SeedData) do
+	if data.SeedName then table.insert(seedNamesList, data.SeedName) end
+end
+table.sort(seedNamesList)
+
+local seedNames = {}
+local successSeed = pcall(function()
+	local SD = require(RS:WaitForChild("SharedModules"):WaitForChild("SeedData"))
+	for _, data in ipairs(SD) do
+		if data.SeedName and not data.MutationSeed then
+			table.insert(seedNames, data.SeedName)
+		end
+	end
+end)
+if not successSeed or #seedNames == 0 then
+	seedNames = {"Carrot","Strawberry","Blueberry","Tulip","Tomato","Apple","Bamboo","Corn","Cactus","Pineapple","Mushroom","Green Bean","Banana","Grape","Coconut","Mango","Dragon Fruit","Acorn","Cherry","Sunflower","Venus Fly Trap","Pomegranate","Poison Apple","Moon Bloom","Dragon's Breath","Ghost Pepper","Poison Ivy","Baby Cactus","Glow Mushroom","Romanesco","Horned Melon"}
+end
+table.sort(seedNames)
+
+local playerListDropdown = nil
+
+local function buildPlayerList()
+	local list = {"All"}
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player ~= LP then
+			table.insert(list, player.DisplayName)
+		end
+	end
+	return list
+end
+
+local rarityMap = {}
+local successRarity = pcall(function()
+	local SD = require(RS:WaitForChild("SharedModules"):WaitForChild("SeedData"))
+	for _, data in ipairs(SD) do
+		if data.SeedName and data.Rarity then rarityMap[data.SeedName] = data.Rarity end
+	end
+end)
+if not successRarity or next(rarityMap) == nil then
+	rarityMap = {
+		Carrot="Common",Strawberry="Common",Blueberry="Common",Tulip="Uncommon",Tomato="Uncommon",Apple="Uncommon",
+		Bamboo="Rare",Corn="Rare",Cactus="Rare",Pineapple="Rare",Mushroom="Epic",["Green Bean"]="Epic",
+		Banana="Epic",Grape="Epic",Coconut="Epic",Mango="Epic",["Dragon Fruit"]="Legendary",Acorn="Legendary",
+		Cherry="Legendary",Sunflower="Legendary",["Venus Fly Trap"]="Mythic",Pomegranate="Mythic",
+		["Poison Apple"]="Mythic",["Moon Bloom"]="Super",["Dragon's Breath"]="Super",["Ghost Pepper"]="Mythic",
+		["Poison Ivy"]="Legendary",["Baby Cactus"]="Rare",["Glow Mushroom"]="Epic",Romanesco="Mythic",
+		["Horned Melon"]="Rare",Gold="Legendary",Rainbow="Mythic"
+	}
+end
+
+local rarityListRaw = {}
+local raritySet = {}
+for _, r in pairs(rarityMap) do
+	if not raritySet[r] then raritySet[r] = true table.insert(rarityListRaw, r) end
+end
+table.sort(rarityListRaw)
+local rarityList = {"All"}
+for _, r in ipairs(rarityListRaw) do table.insert(rarityList, r) end
+
+local destroyPlantNameList = {"All"}
+for _, name in ipairs(seedNames) do table.insert(destroyPlantNameList, name) end
+
+local seedNamesWithAll = {"All"}
+for _, name in ipairs(seedNames) do table.insert(seedNamesWithAll, name) end
+
+local fruitList = {
+	"Buttercup","Pineapple","Grape","Apple","Tulip","Strawberry","Blueberry","Tomato","Pumpkin",
+	"Bamboo","Mushroom","Coconut","Cactus","Mango","Cherry","Lotus","Sunflower","Acorn","Beanstalk",
+	"Poison Apple","Thorn Rose","Pomegranate","Venus Fly Trap","Ghost Pepper","Poison Ivy","Romanesco",
+	"Baby Cactus","Glow Mushroom","Horned Melon","Corn","Pinetree","Moon Bloom","Banana","Carrot",
+	"Dragon Fruit","Moon Bloom OLD","Dragon's Breath","Green Bean"
+}
+
+local mutationNamesList = {}
+local successMut = pcall(function()
+	local mutationFolder = RS:WaitForChild("SharedModules"):WaitForChild("MutationData")
+	if mutationFolder then
+		for _, moduleScript in mutationFolder:GetChildren() do
+			if moduleScript:IsA("ModuleScript") then
+				table.insert(mutationNamesList, moduleScript.Name)
+			end
+		end
+	end
+end)
+if not successMut or #mutationNamesList == 0 then
+	mutationNamesList = {"Gold","Rainbow","Electric","Frozen","Bloodlit","Chained","Starstruck"}
+end
+table.sort(mutationNamesList)
+
+local mutationNamesWithAll = {"All"}
+for _, m in ipairs(mutationNamesList) do table.insert(mutationNamesWithAll, m) end
+
+local weatherList = {"Night","Bloodmoon","Goldmoon","Rainbow Moon","Rain","Blizzard","Lightning"}
+local gearList = {
+	"Common Watering Can","Common Sprinkler","Sign","Uncommon Sprinkler","Trowel","Rare Sprinkler",
+	"Jump Mushroom","Speed Mushroom","Lantern","Shrink Mushroom","Supersize Mushroom","Gnome","Flashbang",
+	"Basic Pot","Legendary Sprinkler","Invisibility Mushroom","Teleporter","Wheelbarrow",
+	"Super Watering Can","Super Sprinkler"
+}
+local crateList = {
+	"Ladder Crate","Bench Crate","Light Crate","Sign Crate","Arch Crate","Roleplay Crate","Bridge Crate",
+	"Spring Crate","Seesaw Crate","Conveyor Crate","Owner Door Crate","Bear Trap Crate","Fence Crate","Teleporter Pad Crate"
+}
+
+local TRANSLATE_FOLDER = "Moonlight Hub/GAG2/"
+local TRANSLATE_CONFIG = TRANSLATE_FOLDER .. "Translate.txt"
+local TRANSLATE_DATA_FOLDER = TRANSLATE_FOLDER .. "Translate/"
+
+local _translateCache = {}
+local _translateTable = {}
+
+local _targetLang = (function()
+	local ok, region = pcall(function()
+		return game:GetService("LocalizationService"):GetCountryRegionForPlayerAsync(LP)
+	end)
+	if ok and region then
+		local map = {
+			VN="vi",JP="ja",KR="ko",CN="zh-CN",TW="zh-TW",TH="th",ID="id",MY="ms",PH="fil",
+			BR="pt",FR="fr",DE="de",ES="es",RU="ru",TR="tr",SA="ar",PL="pl",IT="it",NL="nl",
+			IN="hi",PK="ur",BD="bn",UA="uk",RO="ro",HU="hu",CZ="cs",SK="sk",BG="bg",
+			SE="sv",DK="da",FI="fi",NO="no",GR="el",HR="hr",RS="sr",SI="sl",LV="lv",LT="lt",EE="et",
+		}
+		return map[region] or "en"
+	end
+	local loc = tostring(LP.LocaleId or "")
+	return loc ~= "" and loc or "en"
+end)()
+
+local _httpFn = syn and syn.request or http_request or request
+
+_G.AutoTranslate = false
+pcall(function()
+	if isfile(TRANSLATE_CONFIG) then
+		local val = readfile(TRANSLATE_CONFIG)
+		_G.AutoTranslate = (val:lower():find("true") ~= nil)
+	else
+		if not isfolder(TRANSLATE_FOLDER) then makefolder(TRANSLATE_FOLDER) end
+		if not isfolder(TRANSLATE_DATA_FOLDER) then makefolder(TRANSLATE_DATA_FOLDER) end
+		writefile(TRANSLATE_CONFIG, "false")
+	end
+end)
+
+pcall(function()
+	local langFile = TRANSLATE_DATA_FOLDER .. _targetLang .. ".json"
+	if isfile(langFile) then
+		local raw = readfile(langFile)
+		local ok, parsed = pcall(function() return HttpService:JSONDecode(raw) end)
+		if ok and parsed then _translateTable = parsed end
+	end
+end)
+
+getgenv().EnableLog = false
+
+local _logNotifCooldown = {}
+function logAction(mainAction, subAction)
+	local msg = subAction and ("[Log] " .. mainAction .. " | " .. subAction) or ("[Log] " .. mainAction)
+	print(msg)
+	if getgenv().EnableLog then
+		local key = mainAction .. (subAction or "")
+		local now = tick()
+		if not _logNotifCooldown[key] or (now - _logNotifCooldown[key]) > 2 then
+			_logNotifCooldown[key] = now
+			pcall(function()
+				Fluent:Notify({Title = mainAction, Content = subAction or "", Duration = 2})
+			end)
+		end
+	end
+end
+
+function Modules.FirePrompt(prompt)
+	if fireproximityprompt then
+		fireproximityprompt(prompt)
+	else
+		prompt:InputHoldBegin()
+		task.wait(0.01)
+		prompt:InputHoldEnd()
+	end
+end
+
+function Translate(t, fallback)
+	if not t or t == "" then return fallback or t end
+	if _translateTable[t] then return _translateTable[t] end
+	if not _G.AutoTranslate or _targetLang == "en" then return fallback or t end
+	if _translateCache[t] then return _translateCache[t] end
+	local url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=" .. _targetLang .. "&dt=t&q=" .. HttpService:UrlEncode(t)
+	local ok, r = pcall(function() return _httpFn({Url = url, Method = "GET"}).Body end)
+	if not ok or not r then return fallback or t end
+	local ok2, res = pcall(function() return HttpService:JSONDecode(r)[1][1][1] end)
+	local result = (ok2 and res and res ~= "") and res or (fallback or t)
+	_translateCache[t] = result
+	return result
+end
+
+getgenv().SelectFruitHarvest = {}
+getgenv().HarvestSelect = false
+getgenv().HarvestAll = false
+getgenv().OnlyHarvestMutation = false
+getgenv().SelectMutationHarvest = {}
+getgenv().SelectMutationIgnore = {}
+getgenv().IgnoreHarvestMutation = false
+getgenv().SelectWeather = {}
+getgenv().DontHarvestWeather = false
+getgenv().OnlyHarvestWeather = false
+getgenv().AutoSell = false
+getgenv().AutoSellFull = false
+getgenv().SelectSeed = {}
+getgenv().AutoBuySeed = false
+getgenv().SelectGear = {}
+getgenv().AutoBuyGear = false
+getgenv().SelectCrate = {}
+getgenv().AutoBuyCrate = false
+
+_G.autoplant = false
+_G.plantmode = "Random In Plot"
+_G.selectedSeedsToPlant = {}
+_G.autoPlantDelay = 0.2
+
+_G.autoshovelname = false
+_G.autoshovelrarity = false
+_G.selectedDestroyNames = {}
+_G.selectedDestroyRarities = {}
+_G.autoShovelDelay = 0.2
+
+_G.autosteal = false
+_G.stealPlayerFilter = {}
+_G.stealMutationFilter = {}
+_G.stealRarityFilter = {}
+_G.stealDelay = 0.2
+_G.stealSkipOwner = false
+
+_G.autoCollectSeedPacks = false
+_G.autoBuyPetSpawn = false
+
+_G.moveMode = "TP"
+_G.tweenSpeed = 350
+
+_G.walkSpeed = 16
+_G.changeWalkSpeed = false
+_G.jumpHeight = 50
+_G.changeJumpHeight = false
+_G.noclip = false
+_G.infiniteJump = false
+_G.flyEnabled = false
+_G.flySpeed = 1
+_G.antiAfk = false
+_G.invisible = false
+
+local FLYING = false
+local flyConn = {}
+local _stealBlacklist = {}
+
+local function getRoot(char)
+	return char:FindFirstChild("HumanoidRootPart") or char:FindFirstChildOfClass("BasePart")
+end
+
+function sFLY()
+	for _, c in pairs(flyConn) do pcall(function() c:Disconnect() end) end
+	flyConn = {}
+	local char = LP.Character or LP.CharacterAdded:Wait()
+	local humanoid = char:FindFirstChildOfClass("Humanoid")
+	if not humanoid then
+		repeat task.wait() until char:FindFirstChildOfClass("Humanoid")
+		humanoid = char:FindFirstChildOfClass("Humanoid")
+	end
+	local hrp = getRoot(char)
+	if not hrp then return end
+	FLYING = true
+	humanoid.PlatformStand = true
+	local BG = Instance.new("BodyGyro")
+	BG.P = 9e4
+	BG.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+	BG.CFrame = hrp.CFrame
+	BG.Parent = hrp
+	local BV = Instance.new("BodyVelocity")
+	BV.Velocity = Vector3.new(0, 0, 0)
+	BV.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+	BV.Parent = hrp
+	local keys = {}
+	flyConn[1] = UserInputService.InputBegan:Connect(function(input, processed)
+		if processed then return end
+		keys[input.KeyCode] = true
+		pcall(function() workspace.CurrentCamera.CameraType = Enum.CameraType.Track end)
+	end)
+	flyConn[2] = UserInputService.InputEnded:Connect(function(input, processed)
+		keys[input.KeyCode] = nil
+	end)
+	flyConn[3] = RunService.Heartbeat:Connect(function()
+		if not FLYING then return end
+		if not hrp or not hrp.Parent then return end
+		local camera = workspace.CurrentCamera
+		local speed = (_G.flySpeed or 1) * 50
+		local cf = camera.CFrame
+		local vel = Vector3.new(0, 0, 0)
+		if keys[Enum.KeyCode.W] then vel = vel + cf.LookVector end
+		if keys[Enum.KeyCode.S] then vel = vel - cf.LookVector end
+		if keys[Enum.KeyCode.A] then vel = vel - cf.RightVector end
+		if keys[Enum.KeyCode.D] then vel = vel + cf.RightVector end
+		if keys[Enum.KeyCode.E] or keys[Enum.KeyCode.Space] then vel = vel + Vector3.new(0, 1, 0) end
+		if keys[Enum.KeyCode.Q] then vel = vel - Vector3.new(0, 1, 0) end
+		if vel.Magnitude > 0 then
+			BV.Velocity = vel.Unit * speed
+		else
+			BV.Velocity = Vector3.new(0, 0, 0)
+		end
+		BG.CFrame = cf
+	end)
+	flyConn[4] = LP.CharacterRemoving:Connect(function()
+		NOFLY()
+	end)
+end
+
+function NOFLY()
+	FLYING = false
+	for _, c in pairs(flyConn) do pcall(function() c:Disconnect() end) end
+	flyConn = {}
+	local char = LP.Character
+	if char then
+		local humanoid = char:FindFirstChildOfClass("Humanoid")
+		if humanoid then humanoid.PlatformStand = false end
+		local root = getRoot(char)
+		if root then
+			for _, v in pairs(root:GetChildren()) do
+				if v:IsA("BodyVelocity") or v:IsA("BodyGyro") then v:Destroy() end
+			end
+			pcall(function() root.AssemblyLinearVelocity = Vector3.new(0, 0, 0) end)
+		end
+	end
+	pcall(function() workspace.CurrentCamera.CameraType = Enum.CameraType.Custom end)
+end
+
+RunService.Stepped:Connect(function()
+	if _G.noclip and LP.Character then
+		for _, p in ipairs(LP.Character:GetDescendants()) do
+			if p:IsA("BasePart") then p.CanCollide = false end
+		end
+	end
+	if _G.changeWalkSpeed and LP.Character then
+		local h = LP.Character:FindFirstChildOfClass("Humanoid")
+		if h then h.WalkSpeed = _G.walkSpeed end
+	end
+	if _G.changeJumpHeight and LP.Character then
+		local h = LP.Character:FindFirstChildOfClass("Humanoid")
+		if h then h.JumpHeight = _G.jumpHeight end
+	end
+end)
+
+UserInputService.JumpRequest:Connect(function()
+	if _G.infiniteJump and LP.Character then
+		local h = LP.Character:FindFirstChildOfClass("Humanoid")
+		if h then h:ChangeState(Enum.HumanoidStateType.Jumping) end
+	end
+end)
+
+function Modules.tweenTo(position)
+	local char = LP.Character
+	if not char then return end
+	local hrp = char:FindFirstChild("HumanoidRootPart")
+	if not hrp then return end
+	local speed = _G.tweenSpeed or 350
+	local dist = (hrp.Position - position).Magnitude
+	local duration = math.max(dist / speed, 0.05)
+	local bv = Instance.new("BodyVelocity")
+	bv.Velocity = Vector3.new(0, 0, 0)
+	bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+	bv.Parent = hrp
+	local tween = TweenService:Create(hrp, TweenInfo.new(duration, Enum.EasingStyle.Linear), {CFrame = CFrame.new(position)})
+	tween:Play()
+	tween.Completed:Wait()
+	bv:Destroy()
+end
+
+function Modules.teleportTo(position)
+	local char = LP.Character
+	if not char then return end
+	local hrp = char:FindFirstChild("HumanoidRootPart")
+	if not hrp then return end
+	hrp.CFrame = CFrame.new(position)
+end
+
+function Modules.moveTo(position)
+	if _G.moveMode == "Tween" then Modules.tweenTo(position) else Modules.teleportTo(position) end
+end
+
+function Modules.isOwnerInGarden()
+	local ok, result = pcall(function()
+		local gui = LP.PlayerGui
+		local topNotif = gui:FindFirstChild("TopNotification")
+		if not topNotif then return false end
+		for _, child in ipairs(topNotif:GetDescendants()) do
+			if child:IsA("TextLabel") and string.find(child.Text:lower(), "owner in their garden") then
+				return true
+			end
+		end
+		return false
+	end)
+	if ok then return result end
+	return false
+end
+
+function Modules.blacklistPlot(plotId)
+	_stealBlacklist[plotId] = tick() + 30
+	logAction("Steal", "Blacklisted plot " .. tostring(plotId) .. " for 30s")
+end
+
+function Modules.isPlotBlacklisted(plotId)
+	local expiry = _stealBlacklist[plotId]
+	if expiry then
+		if tick() < expiry then return true end
+		_stealBlacklist[plotId] = nil
+	end
+	return false
+end
+
+function Modules.getStealTargets(excludePlotId)
+	local targets = {}
+	local night = RS:FindFirstChild("Night")
+	if not night or night.Value ~= true then return targets end
+	local anyPlayerSelected = false
+	for _, v in pairs(_G.stealPlayerFilter) do if v then anyPlayerSelected = true break end end
+	local anyMutationSelected = false
+	for _, v in pairs(_G.stealMutationFilter) do if v then anyMutationSelected = true break end end
+	local anyRaritySelected = false
+	for _, v in pairs(_G.stealRarityFilter) do if v then anyRaritySelected = true break end end
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player == LP then continue end
+		if anyPlayerSelected then
+			if not _G.stealPlayerFilter["All"] and not _G.stealPlayerFilter[player.DisplayName] then continue end
+		end
+		local plotId = player:GetAttribute("PlotId")
+		if not plotId then continue end
+		if Modules.isPlotBlacklisted(plotId) then continue end
+		if excludePlotId and plotId == excludePlotId then continue end
+		local garden = workspace.Gardens:FindFirstChild("Plot" .. tostring(plotId))
+		if not garden then continue end
+		local plants = garden:FindFirstChild("Plants")
+		if not plants then continue end
+		for _, plant in ipairs(plants:GetChildren()) do
+			local fruits = plant:FindFirstChild("Fruits")
+			if not fruits then continue end
+			for _, fruit in ipairs(fruits:GetChildren()) do
+				local fruitId = fruit:GetAttribute("FruitId")
+				local plantId = fruit:GetAttribute("PlantId")
+				local userId = tonumber(fruit:GetAttribute("UserId"))
+				local seedName = plant:GetAttribute("SeedName") or ""
+				local mutation = plant:GetAttribute("Mutation") or ""
+				local fruitRarity = rarityMap[seedName] or "Common"
+				if not (fruitId and plantId and userId) then continue end
+				if anyMutationSelected then
+					if not _G.stealMutationFilter["All"] and not _G.stealMutationFilter[mutation] then continue end
+				end
+				if anyRaritySelected then
+					if not _G.stealRarityFilter["All"] and not _G.stealRarityFilter[fruitRarity] then continue end
+				end
+				local pos = fruit.PrimaryPart and fruit.PrimaryPart.Position or fruit:GetPivot().Position
+				table.insert(targets, {
+					fruit = fruit,
+					pos = pos,
+					player = player,
+					plotId = plotId,
+					plantId = plantId,
+					fruitId = fruitId,
+					userId = userId
+				})
+			end
+		end
+	end
+	return targets
+end
+
+function Modules.stealAt(target)
+	local userId = target.userId
+	local plantId = target.plantId
+	local fruitId = target.fruitId
+	if not (userId and plantId and fruitId) then return false end
+	local success = pcall(function()
+		Networking.Steal.BeginSteal:Fire(userId, plantId, fruitId)
+		Networking.Steal.CompleteSteal:Fire()
+	end)
+	return success
+end
+
+function Modules.returnToHomePlot()
+	local plotId = LP:GetAttribute("PlotId")
+	if plotId then
+		local plot = workspace.Gardens:FindFirstChild("Plot" .. tostring(plotId))
+		if plot then
+			local ref = plot:FindFirstChild("PlotSizeReference")
+			if ref then
+				local char = LP.Character
+				if char then
+					local hrp = char:FindFirstChild("HumanoidRootPart")
+					if hrp then
+						hrp.CFrame = CFrame.new(ref.Position + Vector3.new(0, 5, 0))
+						return
+					end
+				end
+			end
+			Modules.moveTo(plot:GetPivot().Position + Vector3.new(0, 5, 0))
+			return
+		end
+	end
+	Modules.moveTo(Vector3.new(0, 10, 0))
+end
+
+function Modules.autoStealLoop()
+	while true do
+		if not _G.autosteal then
+			task.wait(0.3)
+			continue
+		end
+		local targets = Modules.getStealTargets()
+		if #targets == 0 then
+			task.wait(0.3)
+			continue
+		end
+		local target = targets[math.random(1, #targets)]
+		Modules.moveTo(target.pos)
+		if _G.stealSkipOwner and Modules.isOwnerInGarden() then
+			local blockedPlotId = target.plotId
+			Modules.blacklistPlot(blockedPlotId)
+			Fluent:Notify({
+				Title = "Steal",
+				Content = "Owner detected! Switching garden...",
+				Duration = 3
+			})
+			local nextTargets = Modules.getStealTargets(blockedPlotId)
+			if #nextTargets > 0 then
+				local next = nextTargets[math.random(1, #nextTargets)]
+				Modules.moveTo(next.pos)
+				task.wait(0.05)
+				if not (_G.stealSkipOwner and Modules.isOwnerInGarden()) then
+					if Modules.stealAt(next) then
+						logAction("Auto Steal", "Stole from " .. next.player.DisplayName)
+						task.wait(_G.stealDelay or 0.2)
+					end
+				end
+			end
+			Modules.returnToHomePlot()
+			task.wait(0.2)
+			continue
+		end
+		if Modules.stealAt(target) then
+			logAction("Auto Steal", "Stole fruit from " .. target.player.DisplayName)
+			task.wait(_G.stealDelay or 0.2)
+		end
+		Modules.returnToHomePlot()
+		task.wait(0.1)
+	end
+end
+
+local function getSeedLocations()
+	local seeds = {}
+	local map = workspace:FindFirstChild("Map")
+	if map then
+		local serverLocs = map:FindFirstChild("SeedPackSpawnServerLocations")
+		if serverLocs then
+			for _, part in ipairs(serverLocs:GetChildren()) do
+				if part:IsA("BasePart") then
+					local prompt = part:FindFirstChildWhichIsA("ProximityPrompt")
+					if prompt and prompt.Enabled then
+						local pos = part.Position + Vector3.new(0, part.Size.Y/2 + 3, 0)
+						table.insert(seeds, {model=part, pos=pos})
+					end
+				end
+			end
+		end
+	end
+	if #seeds == 0 then
+		for _, tag in ipairs({"SeedPrompt","CollectSeed","SeedPackPrompt"}) do
+			for _, prompt in ipairs(CollectionService:GetTagged(tag)) do
+				if prompt:IsA("ProximityPrompt") and prompt.Enabled then
+					local parent = prompt.Parent
+					if parent:IsA("BasePart") then
+						local pos = parent.Position + Vector3.new(0, parent.Size.Y/2 + 3, 0)
+						table.insert(seeds, {model=parent, pos=pos})
+					end
+				end
+			end
+		end
+	end
+	if #seeds == 0 then
+		for _, obj in ipairs(workspace:GetDescendants()) do
+			if obj:IsA("ProximityPrompt") and obj.Enabled and (obj.Name:lower():find("seed") or obj.Name:lower():find("pickup")) then
+				local parent = obj.Parent
+				if parent:IsA("BasePart") then
+					local pos = parent.Position + Vector3.new(0, parent.Size.Y/2 + 3, 0)
+					table.insert(seeds, {model=parent, pos=pos})
+				end
+			end
+		end
+	end
+	return seeds
+end
+
+local function tpAndFireSeedPrompt(seed)
+	local char = LP.Character
+	if not char then return end
+	local hrp = char:FindFirstChild("HumanoidRootPart")
+	if not hrp then return end
+	hrp.CFrame = CFrame.new(seed.pos)
+	task.wait(0.15)
+	local prompt = seed.model:FindFirstChildWhichIsA("ProximityPrompt")
+	if not prompt then return end
+	local old = prompt.MaxActivationDistance
+	prompt.MaxActivationDistance = 100
+	Modules.FirePrompt(prompt)
+	prompt.MaxActivationDistance = old
+end
+
+function Modules.autoCollectSeedPacksLoop()
+	while true do
+		if _G.autoCollectSeedPacks then
+			local seeds = getSeedLocations()
+			if #seeds > 0 then
+				for _, seed in ipairs(seeds) do
+					if not _G.autoCollectSeedPacks then break end
+					tpAndFireSeedPrompt(seed)
+					logAction("Seed Pack", "Collected seed pack")
+					task.wait(0.3)
+				end
+				Modules.returnToHomePlot()
+			end
+		end
+		task.wait(1)
+	end
+end
+
+function Modules.autoBuyPetSpawnLoop()
+	while true do
+		if _G.autoBuyPetSpawn then
+			local char = LP.Character
+			local hrp = char and char:FindFirstChild("HumanoidRootPart")
+			if hrp then
+				local wildPetSpawns = workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("WildPetSpawns")
+				if wildPetSpawns then
+					local spawns = wildPetSpawns:GetChildren()
+					if #spawns > 0 then
+						for _, spawnObj in ipairs(spawns) do
+							if not _G.autoBuyPetSpawn then break end
+							local spawnPos
+							if spawnObj:IsA("BasePart") then
+								spawnPos = spawnObj.Position + Vector3.new(0, 3, 0)
+							elseif spawnObj:IsA("Model") then
+								spawnPos = spawnObj:GetPivot().Position + Vector3.new(0, 3, 0)
+							end
+							if not spawnPos then continue end
+							hrp.CFrame = CFrame.new(spawnPos)
+							task.wait(0.15)
+							local bestPrompt = nil
+							local bestDist = math.huge
+							local checkPos = hrp.Position
+							for _, desc in ipairs(spawnObj:GetDescendants()) do
+								if desc:IsA("ProximityPrompt") and desc.Enabled then
+									local part = desc.Parent
+									if part and part:IsA("BasePart") then
+										local d = (part.Position - checkPos).Magnitude
+										if d < bestDist then bestDist = d bestPrompt = desc end
+									end
+								end
+							end
+							if not bestPrompt then
+								for _, desc in ipairs(wildPetSpawns:GetDescendants()) do
+									if desc:IsA("ProximityPrompt") and desc.Enabled then
+										local part = desc.Parent
+										if part and part:IsA("BasePart") then
+											local d = (part.Position - checkPos).Magnitude
+											if d < bestDist then bestDist = d bestPrompt = desc end
+										end
+									end
+								end
+							end
+							if bestPrompt then
+								local old = bestPrompt.MaxActivationDistance
+								bestPrompt.MaxActivationDistance = 100
+								if fireproximityprompt then
+									fireproximityprompt(bestPrompt)
+								else
+									bestPrompt:InputHoldBegin()
+									task.wait(0.01)
+									bestPrompt:InputHoldEnd()
+								end
+								bestPrompt.MaxActivationDistance = old
+								logAction("Buy Pet", "Pet purchased: " .. spawnObj.Name)
+								task.wait(0.3)
+							end
+						end
+					end
+				end
+			end
+		end
+		task.wait(1)
+	end
+end
+
+function Modules.isWeatherActive(name)
+	local obj = RS:FindFirstChild(name)
+	if obj and obj:IsA("BoolValue") then return obj.Value == true end
+	return false
+end
+
+function Modules.modelHasMutation(model, mutationTable)
+	local mutation = model:GetAttribute("Mutation")
+	if not mutation then return false end
+	for name, selected in pairs(mutationTable) do
+		if selected and mutation == name then return true end
+	end
+	return false
+end
+
+function Modules.getModel(instance)
+	if not instance then return nil end
+	return instance:FindFirstAncestorOfClass("Model")
+end
+
+function Modules.shouldHarvestModel(model)
+	if getgenv().OnlyHarvestMutation then
+		local anySelected = false
+		for _, v in pairs(getgenv().SelectMutationHarvest) do if v then anySelected = true break end end
+		if not anySelected then return false end
+		if not Modules.modelHasMutation(model, getgenv().SelectMutationHarvest) then return false end
+	end
+	if getgenv().IgnoreHarvestMutation then
+		local anySelected = false
+		for _, v in pairs(getgenv().SelectMutationIgnore) do if v then anySelected = true break end end
+		if anySelected then
+			if Modules.modelHasMutation(model, getgenv().SelectMutationIgnore) then return false end
+		end
+	end
+	if getgenv().DontHarvestWeather then
+		local anySelected = false
+		for _, v in pairs(getgenv().SelectWeather) do if v then anySelected = true break end end
+		if anySelected then
+			for name, selected in pairs(getgenv().SelectWeather) do
+				if selected and Modules.isWeatherActive(name) then return false end
+			end
+		end
+	end
+	if getgenv().OnlyHarvestWeather then
+		local anySelected, anyActive = false, false
+		for name, selected in pairs(getgenv().SelectWeather) do
+			if selected then
+				anySelected = true
+				if Modules.isWeatherActive(name) then anyActive = true end
+			end
+		end
+		if anySelected and not anyActive then return false end
+	end
+	return true
+end
+
+local processingPrompts = {}
+function Modules.harvestPrompt(prompt)
+	if processingPrompts[prompt] then return end
+	local model = Modules.getModel(prompt)
+	if not model then return end
+	local plantId = model:GetAttribute("PlantId")
+	local fruitId = model:GetAttribute("FruitId") or ""
+	local plantName = model:GetAttribute("CorePartName") or model:GetAttribute("SeedName") or fruitId
+	local shouldHarvest = false
+	if getgenv().HarvestAll then
+		shouldHarvest = true
+	elseif getgenv().HarvestSelect and getgenv().SelectFruitHarvest[plantName] then
+		shouldHarvest = true
+	end
+	if shouldHarvest then shouldHarvest = Modules.shouldHarvestModel(model) end
+	if plantId and shouldHarvest then
+		processingPrompts[prompt] = true
+		task.spawn(function()
+			local oldDist = prompt.MaxActivationDistance
+			prompt.MaxActivationDistance = math.huge
+			prompt:InputHoldBegin()
+			task.wait(0.01)
+			prompt:InputHoldEnd()
+			Networking.Garden.CollectFruit:Fire(plantId, fruitId)
+			prompt.MaxActivationDistance = oldDist
+			task.wait(0.2)
+			processingPrompts[prompt] = nil
+		end)
+	end
+end
+
+function Modules.harvestLoop()
+	while true do
+		if (getgenv().HarvestSelect or getgenv().HarvestAll) and (not hide or not hide.Value) then
+			for _, prompt in ipairs(CollectionService:GetTagged("HarvestPrompt")) do
+				if prompt:IsA("ProximityPrompt") and prompt.Enabled then
+					task.spawn(Modules.harvestPrompt, prompt)
+				end
+			end
+		end
+		task.wait(_G.harvestDelay or 0.05)
+	end
+end
+
+function Modules.sellLoop()
+	while true do
+		if getgenv().AutoSell then
+			logAction("Auto Sell", "Sold all fruits")
+			Networking.NPCS.SellAll:Fire()
+		end
+		task.wait(_G.sellDelay or 0.2)
+	end
+end
+
+function Modules.sellFullLoop()
+	while true do
+		if getgenv().AutoSellFull then
+			local ok, result = pcall(function()
+				return LP.PlayerGui.BackpackGui.Backpack.Inventory.FruitInventory.Text
+			end)
+			if ok and result then
+				local current, max = result:match("(%d+)/(%d+)")
+				if current and max and tonumber(current) >= tonumber(max) then
+					logAction("Auto Sell Full", "Backpack full - sold all fruits")
+					Networking.NPCS.SellAll:Fire()
+				end
+			end
+		end
+		task.wait(_G.sellDelay or 0.2)
+	end
+end
+
+function Modules.shopLoop()
+	while true do
+		if getgenv().AutoBuySeed then
+			for name, selected in pairs(getgenv().SelectSeed) do
+				if selected then
+					logAction("Auto Buy Seed", name)
+					Packet:FireServer(103, name)
+					task.wait(0.2)
+				end
+			end
+		end
+		if getgenv().AutoBuyGear then
+			for name, selected in pairs(getgenv().SelectGear) do
+				if selected then
+					logAction("Auto Buy Gear", name)
+					Packet:FireServer(107, name)
+					task.wait(0.2)
+				end
+			end
+		end
+		if getgenv().AutoBuyCrate then
+			for name, selected in pairs(getgenv().SelectCrate) do
+				if selected then
+					logAction("Auto Buy Crate", name)
+					Packet:FireServer(103, name)
+					task.wait(0.2)
+				end
+			end
+		end
+		task.wait(0.2)
+	end
+end
+
+function Modules.getPlantAreaGround(position)
+	local rayOrigin = position + Vector3.new(0, 5, 0)
+	local rayDirection = Vector3.new(0, -20, 0)
+	local raycastParams = RaycastParams.new()
+	raycastParams.FilterDescendantsInstances = {workspace.Gardens}
+	raycastParams.FilterType = Enum.RaycastFilterType.Include
+	local result = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+	if result then return result.Position + Vector3.new(0, 0.1, 0) end
+	return nil
+end
+
+function Modules.plantSeedAtPosition(position)
+	local anySelected = false
+	for _, v in pairs(_G.selectedSeedsToPlant) do if v then anySelected = true break end end
+	if not anySelected then return false end
+	local backpack = LP:FindFirstChildOfClass("Backpack")
+	if not backpack then return false end
+	if _G.selectedSeedsToPlant["All"] then
+		for _, tool in backpack:GetChildren() do
+			if tool:IsA("Tool") and tool:GetAttribute("SeedTool") then
+				logAction("Auto Plant", tool.Name)
+				Networking.Plant.PlantSeed:Fire(position, tool:GetAttribute("SeedTool"), tool)
+				return true
+			end
+		end
+		return false
+	end
+	local seedTool = nil
+	for name, selected in pairs(_G.selectedSeedsToPlant) do
+		if selected then
+			for _, tool in backpack:GetChildren() do
+				if tool:IsA("Tool") and tool.Name == name and tool:GetAttribute("SeedTool") then
+					seedTool = tool break
+				end
+			end
+			if seedTool then break end
+		end
+	end
+	if not seedTool then return false end
+	logAction("Auto Plant", seedTool.Name)
+	Networking.Plant.PlantSeed:Fire(position, seedTool:GetAttribute("SeedTool"), seedTool)
+	return true
+end
+
+function Modules.autoPlantLoop()
+	while true do
+		if _G.autoplant then
+			local plotId = LP:GetAttribute("PlotId")
+			local plot = plotId and workspace:FindFirstChild("Gardens") and workspace.Gardens:FindFirstChild("Plot" .. plotId)
+			if plot then
+				local targetPos
+				if _G.plantmode == "Under Player" then
+					local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+					if hrp then
+						local groundPos = Modules.getPlantAreaGround(hrp.Position)
+						if groundPos then targetPos = groundPos end
+					end
+				else
+					local plantAreas = CollectionService:GetTagged("PlantArea")
+					local plotPlantAreas = {}
+					for _, area in ipairs(plantAreas) do
+						if area:IsDescendantOf(plot) then table.insert(plotPlantAreas, area) end
+					end
+					if #plotPlantAreas > 0 then
+						local area = plotPlantAreas[math.random(1, #plotPlantAreas)]
+						local pos = area.Position
+						local size = area.Size
+						targetPos = Vector3.new(
+							pos.X + (math.random()-0.5)*size.X,
+							pos.Y + size.Y/2 + 0.1,
+							pos.Z + (math.random()-0.5)*size.Z
+						)
+					end
+				end
+				if targetPos then Modules.plantSeedAtPosition(targetPos) end
+			end
+		end
+		task.wait(_G.autoPlantDelay or 0.2)
+	end
+end
+
+function Modules.equipShovel()
+	local char = LP.Character
+	if not char then return nil end
+	local humanoid = char:FindFirstChildOfClass("Humanoid")
+	if not humanoid then return nil end
+	local alreadyEquipped = char:FindFirstChild("Shovel")
+	if alreadyEquipped and alreadyEquipped:IsA("Tool") and alreadyEquipped:GetAttribute("Shovel") then
+		return alreadyEquipped
+	end
+	local backpack = LP:FindFirstChildOfClass("Backpack")
+	if not backpack then return nil end
+	for _, tool in backpack:GetChildren() do
+		if tool:IsA("Tool") and tool.Name == "Shovel" and tool:GetAttribute("Shovel") then
+			humanoid:EquipTool(tool)
+			task.wait(0.1)
+			return tool
+		end
+	end
+	return nil
+end
+
+function Modules.plantMatchesDestroy(seedName)
+	local matchName = false
+	local matchRarity = false
+	if _G.autoshovelname then
+		local anyNameSelected = false
+		for _, sel in pairs(_G.selectedDestroyNames) do if sel then anyNameSelected = true break end end
+		if anyNameSelected then
+			if _G.selectedDestroyNames["All"] then matchName = true
+			elseif _G.selectedDestroyNames[seedName] then matchName = true end
+		end
+	end
+	if _G.autoshovelrarity then
+		local anyRaritySelected = false
+		for _, sel in pairs(_G.selectedDestroyRarities) do if sel then anyRaritySelected = true break end end
+		if anyRaritySelected then
+			local plantRarity = rarityMap[seedName] or "Common"
+			if _G.selectedDestroyRarities["All"] then matchRarity = true
+			elseif _G.selectedDestroyRarities[plantRarity] then matchRarity = true end
+		end
+	end
+	return matchName or matchRarity
+end
+
+function Modules.autoShovelLoop()
+	while true do
+		if _G.autoshovelname or _G.autoshovelrarity then
+			local plotId = LP:GetAttribute("PlotId")
+			if plotId then
+				local gardens = workspace:FindFirstChild("Gardens")
+				local plot = gardens and gardens:FindFirstChild("Plot" .. tostring(plotId))
+				if plot then
+					local plantsFolder = plot:FindFirstChild("Plants")
+					if plantsFolder then
+						local candidates = {}
+						for _, plant in ipairs(plantsFolder:GetChildren()) do
+							if plant:IsA("Model") then
+								local seedName = plant:GetAttribute("SeedName")
+								if seedName and Modules.plantMatchesDestroy(seedName) then
+									table.insert(candidates, plant)
+								end
+							end
+						end
+						if #candidates > 0 then
+							local shovelTool = Modules.equipShovel()
+							if shovelTool then
+								local shovelType = shovelTool:GetAttribute("Shovel")
+								for _, plant in ipairs(candidates) do
+									if not _G.autoshovelname and not _G.autoshovelrarity then break end
+									if not plant or not plant.Parent then task.wait(_G.autoShovelDelay or 0.2) continue end
+									local plantId = plant:GetAttribute("PlantId")
+									local seedName = plant:GetAttribute("SeedName") or "plant"
+									if plantId and shovelType then
+										pcall(function() Networking.Shovel.UseShovel:Fire(plantId, "", shovelType, shovelTool) end)
+										logAction("Auto Destroy", seedName)
+									end
+									task.wait(_G.autoShovelDelay or 0.2)
+								end
+							else
+								Fluent:Notify({Title="Moonlight Hub", Content=Translate("Shovel not found in backpack!", "Shovel not found in backpack!"), Duration=3})
+							end
+						end
+					end
+				end
+			end
+		end
+		task.wait(1)
+	end
+end
+
+function Modules.antiAfkLoop()
+	while true do
+		if _G.antiAfk then
+			pcall(function()
+				local VirtualUser = game:GetService("VirtualUser")
+				VirtualUser:CaptureController()
+				VirtualUser:ClickButton2(Vector2.new(0,0))
+			end)
+			logAction("Anti AFK", "Prevented AFK kick")
+		end
+		task.wait(300)
+	end
+end
+
