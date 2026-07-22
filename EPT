@@ -1,0 +1,585 @@
+--[[
+    ================================================================
+    ▶ KIETHUB EXECUTION SUITE v2.0 | AUTO FARM & REBIRTH
+    ▶ KẾT HỢP HOÀN CHỈNH TỪ GITHUB + TÍNH NĂNG MỚI
+    ▶ SOURCE: https://github.com/kichetvip/Script/blob/main/Kiethub-EPT
+    ================================================================
+]]
+
+-- ================================================================
+-- PHẦN 1: TẢI WINDUI VÀ THƯ VIỆN CẦN THIẾT
+-- ================================================================
+
+local WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()
+
+-- ================================================================
+-- PHẦN 2: KHỞI TẠO SERVICES VÀ BIẾN TOÀN CỤC
+-- ================================================================
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local RS = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+local CoreGui = game:GetService("CoreGui")
+local Workspace = game:GetService("Workspace")
+local TweenService = game:GetService("TweenService")
+local lp = Players.LocalPlayer
+local Remote = RS:WaitForChild("RemoteEvent", 10)
+
+-- ================================================================
+-- PHẦN 3: QUẢN LÝ TRẠNG THÁI (STATE MANAGEMENT)
+-- ================================================================
+
+local FarmState = {
+    Active = false,
+    CollectInterval = 0.5,
+    BuildInterval = 1.0,
+    RebirthThreshold = 100,
+    CurrentRebirths = 0,
+    TargetSkill = nil,
+    AutoRebirthEnabled = false,
+    CollectAll = true,
+    BuildAll = true,
+    PendingBuilds = {},
+    CollectedObjects = {},
+    SmartMode = false,
+    AutoEquipSkill = false
+}
+
+-- ================================================================
+-- PHẦN 4: CORE REMOTE FUNCTIONS
+-- ================================================================
+
+local function FireRemote(action, ...)
+    if Remote then
+        pcall(function()
+            Remote:FireServer(action, ...)
+        end)
+    end
+end
+
+-- ================================================================
+-- PHẦN 5: AUTO FARM - COLLECTION ENGINE
+-- ================================================================
+
+local function GetCollectibles()
+    local collectibles = {}
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("BasePart") or obj:IsA("MeshPart") then
+            if obj.Name:find("Collect") or obj.Name:find("Drop") or obj.Name:find("Gem") or obj.Name:find("Orb") or obj.Name:find("Coin") then
+                if obj.Parent and obj.Parent:FindFirstChild("Humanoid") == nil then
+                    table.insert(collectibles, obj)
+                end
+            end
+        end
+    end
+    return collectibles
+end
+
+local function CollectObject(obj)
+    local char = lp.Character
+    if char and char:FindFirstChild("HumanoidRootPart") then
+        local hrp = char.HumanoidRootPart
+        local distance = (hrp.Position - obj.Position).Magnitude
+        if distance > 30 then
+            hrp.CFrame = CFrame.new(obj.Position + Vector3.new(0, 2, 0))
+            task.wait(0.1)
+        end
+        FireRemote("collect", obj)
+        FarmState.CollectedObjects[obj] = os.time()
+        return true
+    end
+    return false
+end
+
+local function CollectAllNearby()
+    local collectibles = GetCollectibles()
+    local collected = 0
+    for _, obj in ipairs(collectibles) do
+        if not FarmState.CollectedObjects[obj] or os.time() - FarmState.CollectedObjects[obj] > 5 then
+            local success = CollectObject(obj)
+            if success then collected = collected + 1 end
+            task.wait(FarmState.CollectInterval)
+        end
+    end
+    return collected
+end
+
+-- ================================================================
+-- PHẦN 6: AUTO FARM - BUILD ENGINE
+-- ================================================================
+
+local function GetBuildables()
+    local buildables = {}
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("BasePart") or obj:IsA("Model") then
+            if obj.Name:find("Build") or obj.Name:find("Construct") or obj.Name:find("Upgrade") or obj.Name:find("Structure") then
+                if not obj:FindFirstChild("Built") and obj.Parent ~= lp.Character then
+                    table.insert(buildables, obj)
+                end
+            end
+        end
+    end
+    return buildables
+end
+
+local function BuildStructure(obj)
+    local char = lp.Character
+    if char and char:FindFirstChild("HumanoidRootPart") then
+        local hrp = char.HumanoidRootPart
+        local position = obj.Position or obj:GetPivot().Position
+        hrp.CFrame = CFrame.new(position + Vector3.new(0, 3, 0))
+        task.wait(0.2)
+        FireRemote("build", obj)
+        FarmState.PendingBuilds[obj] = os.time() + 2
+        return true
+    end
+    return false
+end
+
+local function BuildAllAvailable()
+    local buildables = GetBuildables()
+    local built = 0
+    for _, obj in ipairs(buildables) do
+        if not FarmState.PendingBuilds[obj] or os.time() > FarmState.PendingBuilds[obj] then
+            local success = BuildStructure(obj)
+            if success then built = built + 1 end
+            task.wait(FarmState.BuildInterval)
+        end
+    end
+    return built
+end
+
+-- ================================================================
+-- PHẦN 7: AUTO REBIRTH ENGINE
+-- ================================================================
+
+local function GetRebirthCount()
+    local stats = lp:FindFirstChild("leaderstats")
+    if stats then
+        local rb = stats:FindFirstChild("Rebirths") or stats:FindFirstChild("Rebirth")
+        if rb then return rb.Value end
+    end
+    local playerData = lp:FindFirstChild("PlayerData")
+    if playerData then
+        local rb = playerData:FindFirstChild("Rebirths") or playerData:FindFirstChild("TotalRebirths")
+        if rb then return rb.Value end
+    end
+    return FarmState.CurrentRebirths
+end
+
+local function PerformRebirth()
+    local rebirths = GetRebirthCount()
+    FarmState.CurrentRebirths = rebirths
+    
+    FireRemote("rebirth", "trigger")
+    FireRemote("rebirth", "confirm")
+    task.wait(2)
+    
+    if FarmState.TargetSkill then
+        FireRemote("equip_mystery_spell", FarmState.TargetSkill)
+        task.wait(0.5)
+    end
+    
+    FarmState.CurrentRebirths = FarmState.CurrentRebirths + 1
+    return true
+end
+
+local function CheckRebirthCondition()
+    local stats = lp:FindFirstChild("leaderstats")
+    if stats then
+        local level = stats:FindFirstChild("Level")
+        if level and level.Value >= FarmState.RebirthThreshold then
+            return true
+        end
+    end
+    return false
+end
+
+-- ================================================================
+-- PHẦN 8: SKILL MANAGEMENT (TỪ GITHUB)
+-- ================================================================
+
+local powers = {
+    ["Water"] = {"Jellyfish", "Bubbles", "Aqua Trident", "Big Tsunami", "Water Beam", "Bubble Dash"},
+    ["Lava"] = {"Lava Katana","Lava Ball","Magma Fists","Lava Dash","Volcano Sentry","Magma Spikes","Nibiru"},
+    ["Bone"] = {"Bone Scythe","Blaster","Bones Barrage","Flying Bone","Bone Surge","Twin Blasters","Judgement Blast"},
+    ["Darkness"] = {"Shadow Sword","Unseen Hands","Unseen Barrage","Dark Duo","Abyss","Dark Hold","Dark Arc"},
+    ["Light"] = {"Light Saber","Light Ball","Light Orbs","Blinding Light","Shooting Star","Light Speed","Light Beam"},
+    ["Nature"] = {"Christmas Tree Sword","Plantoid","Spore Bombs","Nature's Blessing","Nuclear Spore","Pine Burst","Nature's Wrath"},
+    ["Ice"] = {"Frost Staff","Frost Fire Ball","Ice Disk","Frost Fire Bomb","Snow Ball","Ultracold Aura","Ice Spikes"},
+    ["Thunder"] = {"Thunder Staff","Bolt","Barrage","Discharge","Flying Nimbus","Lightning Strike","Storm"},
+    ["Earth"] = {"Tectonic Hammer","Stone Throw","Rocks Barrage","Large Boulder","Burrow","Stone Henge","Earth Spikes"},
+    ["Fire"] = {"Fire Sword","Fire Ball","Fire Fly","Fire Bomb","Comet","Combust","Fire Shower"},
+    ["Technology"] = {"Hyper Sword","Photon Blast","Twin-Photon Blast","Tesla Turret","Orbital","Tesseract","Hyper Slash"},
+    ["Gravity"] = {"Gravity Katana","Heavy Infliction","Tectonic Barrage","Gravity Orb","Tectonic Burst","Zero Gravity","Gravity Globe"},
+    ["Time"] = {"Time Scepter","Temporal Gate","Warp Barrage","Tempo Beam","Time Trap","Warp Bomb","Grand Clock"},
+    ["Crystal"] = {"Crystal Cleaver","Crystal Mine","Energy Crash","Energy Crown","Crystal Eruption","Energy Crystal","Crystal Surge"},
+    ["Venom"] = {"Venom Blade","Poison Bullet","Acid Rain","Venom Stream","Hardened Venom","Poison Demon","Bubbling Venom"},
+    ["Devil"] = {"Devil Sword","Evil Bullet","Fangs Barrage","Evil Flash","Demon Orb","Demon Lock","Dark Tsunami"},
+    ["Space"] = {"Space Gun","Blackhole Orb","Moon Splitter","Asteroid Belt","Meteor Jam","Cosmic Remote","Space Saucer"},
+    ["Super Sonic"] = {"Sonic Blaster","Sonic Barrage","Sonic Twister","Rebound Blast","Rebound Teleport","Sonic Boom","Super Sonic Wave"},
+}
+
+local rebirthSkills = {
+    "Draedon's Tech", "Elysian Beam", "Bubble Flail", "Halloween Sword", 
+    "Poison Serpent", "Dark Flames", "Yoru", "Plasma Orbs", "Red Saucer", 
+    "Undead Staff", "Cruel Sun", "Cold Slap", "Time Slap","Sonar","Cosmic Anvil",
+}
+
+local function EquipSkill(skillName)
+    if Remote then
+        Remote:FireServer("equip_mystery_spell", skillName)
+        return true
+    end
+    return false
+end
+
+-- ================================================================
+-- PHẦN 9: FARM CYCLE CONTROLLER (KẾT HỢP FARM + REBIRTH)
+-- ================================================================
+
+local function RunFarmCycle()
+    while FarmState.Active do
+        -- PHASE 1: Collect
+        if FarmState.CollectAll then
+            local collected = CollectAllNearby()
+            if collected > 0 then
+                -- Có thể thêm thông báo nếu cần
+            end
+            task.wait(0.2)
+        end
+        
+        -- PHASE 2: Build
+        if FarmState.BuildAll then
+            local built = BuildAllAvailable()
+            if built > 0 then
+                -- Có thể thêm thông báo nếu cần
+            end
+            task.wait(0.2)
+        end
+        
+        -- PHASE 3: Check Rebirth
+        if FarmState.AutoRebirthEnabled and CheckRebirthCondition() then
+            PerformRebirth()
+            task.wait(2)
+        end
+        
+        task.wait(0.1)
+    end
+end
+
+-- ================================================================
+-- PHẦN 10: TẠO UI WINDUI (KẾT HỢP TỪ GITHUB + TÍNH NĂNG MỚI)
+-- ================================================================
+
+-- Tạo Window
+local Window = WindUI:CreateWindow({
+    Title = "KietHub v2.0 | Auto Farm + Rebirth",
+    Author = "by Kiet",
+    Icon = "solar:star-fall-minimalistic-bold-duotone",
+    Size = UDim2.fromOffset(650, 560),
+    Transparent = true,
+    Theme = "Dark",
+})
+
+Window:SetToggleKey(Enum.KeyCode.RightControl)
+
+-- ================================================================
+-- TAB 1: AUTO FARM
+-- ================================================================
+
+local FarmTab = Window:Tab({ Title = "Auto Farm", Icon = "solar:hammer-bold" })
+
+-- Farm Controls
+FarmTab:Section({ Title = "Farm Controls" })
+
+FarmTab:Toggle({
+    Title = "Enable Auto Farm",
+    Desc = "Automatically collect and build structures",
+    Icon = "solar:play-bold",
+    Callback = function(state)
+        FarmState.Active = state
+        if state then
+            task.spawn(RunFarmCycle)
+            WindUI:Notify({ Title = "Auto Farm", Content = "Farm cycle initialized" })
+        else
+            WindUI:Notify({ Title = "Auto Farm", Content = "Farm cycle halted" })
+        end
+    end
+})
+
+FarmTab:Slider({
+    Title = "Collection Interval (s)",
+    Step = 0.1,
+    Value = { Min = 0.1, Max = 2.0, Default = 0.5 },
+    Callback = function(v) FarmState.CollectInterval = v end
+})
+
+FarmTab:Slider({
+    Title = "Build Interval (s)",
+    Step = 0.1,
+    Value = { Min = 0.2, Max = 3.0, Default = 1.0 },
+    Callback = function(v) FarmState.BuildInterval = v end
+})
+
+FarmTab:Toggle({
+    Title = "Collect All Nearby",
+    Desc = "Automatically collect all collectible items in range",
+    Callback = function(v) FarmState.CollectAll = v end
+})
+
+FarmTab:Toggle({
+    Title = "Build All Structures",
+    Desc = "Automatically build all available structures",
+    Callback = function(v) FarmState.BuildAll = v end
+})
+
+-- Manual Controls
+FarmTab:Section({ Title = "Manual Operations" })
+
+FarmTab:Button({
+    Title = "Force Collect",
+    Icon = "solar:hand-bold",
+    Callback = function()
+        local count = CollectAllNearby()
+        WindUI:Notify({ Title = "Collection", Content = "Collected " .. count .. " items" })
+    end
+})
+
+FarmTab:Button({
+    Title = "Force Build",
+    Icon = "solar:hammer-bold",
+    Callback = function()
+        local count = BuildAllAvailable()
+        WindUI:Notify({ Title = "Building", Content = "Built " .. count .. " structures" })
+    end
+})
+
+-- ================================================================
+-- TAB 2: AUTO REBIRTH
+-- ================================================================
+
+local RebirthTab = Window:Tab({ Title = "Auto Rebirth", Icon = "solar:refresh-bold" })
+
+RebirthTab:Section({ Title = "Rebirth Automation" })
+
+RebirthTab:Toggle({
+    Title = "Enable Auto Rebirth",
+    Desc = "Automatically rebirth when conditions are met",
+    Icon = "solar:cycle-bold",
+    Callback = function(state)
+        FarmState.AutoRebirthEnabled = state
+        if state then
+            FarmState.CurrentRebirths = GetRebirthCount()
+            WindUI:Notify({ Title = "Auto Rebirth", Content = "Auto rebirth activated" })
+        else
+            WindUI:Notify({ Title = "Auto Rebirth", Content = "Auto rebirth deactivated" })
+        end
+    end
+})
+
+RebirthTab:Slider({
+    Title = "Rebirth Level Threshold",
+    Step = 1,
+    Value = { Min = 1, Max = 500, Default = 100 },
+    Callback = function(v) FarmState.RebirthThreshold = v end
+})
+
+-- Skill Assignment
+RebirthTab:Section({ Title = "Rebirth Skill Assignment" })
+
+local SkillDropdown = RebirthTab:Dropdown({
+    Title = "Select Rebirth Skill",
+    Multi = false,
+    Values = rebirthSkills,
+    Value = nil,
+    Callback = function(v)
+        FarmState.TargetSkill = v
+        EquipSkill(v)
+        WindUI:Notify({ Title = "Skill Assignment", Content = "Set skill: " .. v })
+    end
+})
+
+RebirthTab:Button({
+    Title = "Manual Rebirth",
+    Icon = "solar:refresh-bold",
+    Color = Color3.fromHex("#FF4B30"),
+    Callback = function()
+        if PerformRebirth() then
+            WindUI:Notify({ Title = "Rebirth", Content = "Manual rebirth executed" })
+        end
+    end
+})
+
+-- Rebirth Stats
+RebirthTab:Section({ Title = "Rebirth Statistics" })
+
+RebirthTab:Button({
+    Title = "Refresh Rebirth Count",
+    Icon = "solar:info-bold",
+    Callback = function()
+        FarmState.CurrentRebirths = GetRebirthCount()
+        WindUI:Notify({ 
+            Title = "Statistics", 
+            Content = "Current Rebirths: " .. FarmState.CurrentRebirths 
+        })
+    end
+})
+
+-- ================================================================
+-- TAB 3: POWERS (TỪ GITHUB GỐC)
+-- ================================================================
+
+local PowersTab = Window:Tab({ Title = "Powers", Icon = "solar:magic-stick-bold" })
+
+for category, list in pairs(powers) do
+    PowersTab:Section({ Title = category })
+    for _, skill in ipairs(list) do
+        PowersTab:Button({
+            Title = skill,
+            Callback = function()
+                if Remote then
+                    Remote:FireServer("equip_mystery_spell", skill)
+                    WindUI:Notify({ Title = "Power Equipped", Content = skill })
+                end
+            end
+        })
+    end
+end
+
+-- ================================================================
+-- TAB 4: TELEPORT (TỪ GITHUB GỐC)
+-- ================================================================
+
+local TPTab = Window:Tab({ Title = "Teleport", Icon = "solar:map-point-bold" })
+
+local function GetPlayerNames()
+    local list = {}
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= lp then table.insert(list, p.Name) end
+    end
+    return list
+end
+
+local tpTargetName = ""
+
+TPTab:Section({ Title = "Target Acquisition" })
+
+local PlayerDropdown = TPTab:Dropdown({
+    Title = "Select Target Profile",
+    Multi = false,
+    Values = GetPlayerNames(),
+    Value = nil,
+    Callback = function(v) tpTargetName = v end
+})
+
+TPTab:Button({
+    Title = "Refresh Directory",
+    Icon = "solar:refresh-bold",
+    Callback = function()
+        PlayerDropdown:Refresh(GetPlayerNames())
+        WindUI:Notify({ Title = "Teleportation", Content = "Active player directory updated" })
+    end
+})
+
+TPTab:Button({
+    Title = "Execute Relocation",
+    Icon = "solar:rocket-bold",
+    Callback = function()
+        if tpTargetName ~= "" then
+            local targetPlr = Players:FindFirstChild(tpTargetName)
+            if targetPlr and targetPlr.Character and targetPlr.Character:FindFirstChild("HumanoidRootPart") then
+                local myChar = lp.Character
+                if myChar and myChar:FindFirstChild("HumanoidRootPart") then
+                    myChar.HumanoidRootPart.CFrame = targetPlr.Character.HumanoidRootPart.CFrame * CFrame.new(0, 3, 0)
+                    WindUI:Notify({ Title = "Teleportation", Content = "Relocated to: " .. targetPlr.Name })
+                end
+            end
+        else
+            WindUI:Notify({ Title = "Error", Content = "No valid target selected" })
+        end
+    end
+})
+
+-- ================================================================
+-- TAB 5: PLAYER (TỪ GITHUB GỐC)
+-- ================================================================
+
+local PlayerTab = Window:Tab({ Title = "Player", Icon = "solar:user-bold" })
+
+PlayerTab:Section({ Title = "Movement Vector Alteration" })
+
+local currentSpeed, currentJump = 16, 50
+local lockSpeed, lockJump = false, false
+
+PlayerTab:Slider({
+    Title = "WalkSpeed Velocity",
+    Step = 1,
+    Value = { Min = 16, Max = 500, Default = 16 },
+    Callback = function(v) currentSpeed = v end
+})
+
+PlayerTab:Slider({
+    Title = "JumpPower Amplitude",
+    Step = 1,
+    Value = { Min = 50, Max = 500, Default = 50 },
+    Callback = function(v) currentJump = v end
+})
+
+PlayerTab:Toggle({ Title = "Constrain WalkSpeed", Callback = function(v) lockSpeed = v end })
+PlayerTab:Toggle({ Title = "Constrain JumpPower", Callback = function(v) lockJump = v end })
+
+-- ================================================================
+-- TAB 6: SETTINGS
+-- ================================================================
+
+local SettingsTab = Window:Tab({ Title = "Settings", Icon = "solar:settings-bold" })
+
+SettingsTab:Button({
+    Title = "Unload Interface",
+    Desc = "Completely terminate execution and clear all components",
+    Color = Color3.fromHex("#FF4B30"),
+    Callback = function()
+        FarmState.Active = false
+        FarmState.AutoRebirthEnabled = false
+        Window:Destroy()
+    end
+})
+
+-- ================================================================
+-- PHẦN 11: RUNTIME HOOKS (TỪ GITHUB GỐC)
+-- ================================================================
+
+RunService.Stepped:Connect(function()
+    if lp.Character and lp.Character:FindFirstChild("Humanoid") then
+        local hum = lp.Character.Humanoid
+        if lockSpeed then hum.WalkSpeed = currentSpeed end
+        if lockJump then hum.JumpPower = currentJump end
+    end
+end)
+
+-- ================================================================
+-- PHẦN 12: INITIALIZATION
+-- ================================================================
+
+Window:SelectTab(1)
+
+WindUI:Notify({
+    Title = "KietHub v2.0 Loaded",
+    Content = "Auto Farm + Rebirth systems ready. Configure settings to start.",
+    Duration = 5
+})
+
+-- ================================================================
+-- PHẦN 13: EXPORT MODULE (TÙY CHỌN)
+-- ================================================================
+
+return {
+    FarmState = FarmState,
+    CollectAllNearby = CollectAllNearby,
+    BuildAllAvailable = BuildAllAvailable,
+    PerformRebirth = PerformRebirth,
+    EquipSkill = EquipSkill,
+    GetRebirthCount = GetRebirthCount
+}
