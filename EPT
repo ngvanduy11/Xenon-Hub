@@ -1,33 +1,107 @@
---[[
-    ================================================================
-    ▶ KIETHUB EXECUTION SUITE v2.0 | AUTO FARM & REBIRTH
-    ▶ KẾT HỢP HOÀN CHỈNH TỪ GITHUB + TÍNH NĂNG MỚI
-    ▶ SOURCE: https://github.com/kichetvip/Script/blob/main/Kiethub-EPT
-    ================================================================
-]]
+local WindUI
+local function LoadWindUI()
+    local success, result = pcall(function()
+        return loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()
+    end)
+    if success and result then
+        return result
+    else
+        -- Tạo UI đơn giản nếu không tải được WindUI
+        local function createSimpleUI()
+            local gui = Instance.new("ScreenGui")
+            gui.Name = "FarmUI"
+            gui.Parent = game.Players.LocalPlayer:WaitForChild("PlayerGui")
+            
+            local frame = Instance.new("Frame")
+            frame.Size = UDim2.new(0, 350, 0, 250)
+            frame.Position = UDim2.new(0.5, -175, 0.5, -125)
+            frame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+            frame.BorderSizePixel = 0
+            frame.Parent = gui
+            
+            local title = Instance.new("TextLabel")
+            title.Size = UDim2.new(1, 0, 0, 40)
+            title.Text = "Auto Farm + Rebirth"
+            title.TextColor3 = Color3.fromRGB(255, 255, 255)
+            title.BackgroundTransparency = 1
+            title.Font = Enum.Font.GothamBold
+            title.TextSize = 18
+            title.Parent = frame
+            
+            local status = Instance.new("TextLabel")
+            status.Size = UDim2.new(1, 0, 0, 30)
+            status.Position = UDim2.new(0, 0, 0.15, 0)
+            status.Text = "Status: Ready"
+            status.TextColor3 = Color3.fromRGB(200, 200, 200)
+            status.BackgroundTransparency = 1
+            status.Parent = frame
+            
+            local btnFarm = Instance.new("TextButton")
+            btnFarm.Size = UDim2.new(0, 150, 0, 40)
+            btnFarm.Position = UDim2.new(0.5, -160, 0.35, 0)
+            btnFarm.Text = "Start Farm"
+            btnFarm.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
+            btnFarm.TextColor3 = Color3.fromRGB(255, 255, 255)
+            btnFarm.Parent = frame
+            
+            local btnRebirth = Instance.new("TextButton")
+            btnRebirth.Size = UDim2.new(0, 150, 0, 40)
+            btnRebirth.Position = UDim2.new(0.5, 10, 0.35, 0)
+            btnRebirth.Text = "Manual Rebirth"
+            btnRebirth.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
+            btnRebirth.TextColor3 = Color3.fromRGB(255, 255, 255)
+            btnRebirth.Parent = frame
+            
+            local info = Instance.new("TextLabel")
+            info.Size = UDim2.new(1, 0, 0, 60)
+            info.Position = UDim2.new(0, 0, 0.6, 0)
+            info.Text = "Farm: Off\nRebirth: Off"
+            info.TextColor3 = Color3.fromRGB(150, 150, 150)
+            info.BackgroundTransparency = 1
+            info.TextSize = 14
+            info.Parent = frame
+            
+            return {
+                Frame = frame,
+                Status = status,
+                BtnFarm = btnFarm,
+                BtnRebirth = btnRebirth,
+                Info = info,
+                Gui = gui
+            }
+        end
+        return createSimpleUI()
+    end
+end
+
+WindUI = LoadWindUI()
 
 -- ================================================================
--- PHẦN 1: TẢI WINDUI VÀ THƯ VIỆN CẦN THIẾT
--- ================================================================
-
-local WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()
-
--- ================================================================
--- PHẦN 2: KHỞI TẠO SERVICES VÀ BIẾN TOÀN CỤC
+-- SERVICES
 -- ================================================================
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local RS = game:GetService("ReplicatedStorage")
-local UserInputService = game:GetService("UserInputService")
-local CoreGui = game:GetService("CoreGui")
 local Workspace = game:GetService("Workspace")
-local TweenService = game:GetService("TweenService")
 local lp = Players.LocalPlayer
-local Remote = RS:WaitForChild("RemoteEvent", 10)
+
+-- Tìm RemoteEvent
+local Remote = RS:FindFirstChild("RemoteEvent")
+if not Remote then
+    -- Thử tìm trong các service khác
+    for _, service in ipairs({RS, game:GetService("ReplicatedFirst"), game:GetService("ServerStorage")}) do
+        Remote = service:FindFirstChild("RemoteEvent")
+        if Remote then break end
+    end
+end
+
+if not Remote then
+    warn("Không tìm thấy RemoteEvent! Script có thể không hoạt động.")
+end
 
 -- ================================================================
--- PHẦN 3: QUẢN LÝ TRẠNG THÁI (STATE MANAGEMENT)
+-- STATE
 -- ================================================================
 
 local FarmState = {
@@ -40,14 +114,12 @@ local FarmState = {
     AutoRebirthEnabled = false,
     CollectAll = true,
     BuildAll = true,
-    PendingBuilds = {},
     CollectedObjects = {},
-    SmartMode = false,
-    AutoEquipSkill = false
+    PendingBuilds = {}
 }
 
 -- ================================================================
--- PHẦN 4: CORE REMOTE FUNCTIONS
+-- CORE FUNCTIONS
 -- ================================================================
 
 local function FireRemote(action, ...)
@@ -59,29 +131,31 @@ local function FireRemote(action, ...)
 end
 
 -- ================================================================
--- PHẦN 5: AUTO FARM - COLLECTION ENGINE
+-- COLLECTION ENGINE
 -- ================================================================
 
 local function GetCollectibles()
-    local collectibles = {}
+    local items = {}
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("BasePart") or obj:IsA("MeshPart") then
-            if obj.Name:find("Collect") or obj.Name:find("Drop") or obj.Name:find("Gem") or obj.Name:find("Orb") or obj.Name:find("Coin") then
-                if obj.Parent and obj.Parent:FindFirstChild("Humanoid") == nil then
-                    table.insert(collectibles, obj)
+            local name = obj.Name:lower()
+            if name:find("collect") or name:find("drop") or name:find("gem") or 
+               name:find("orb") or name:find("coin") or name:find("crystal") then
+                if obj.Parent and not obj.Parent:FindFirstChild("Humanoid") then
+                    table.insert(items, obj)
                 end
             end
         end
     end
-    return collectibles
+    return items
 end
 
 local function CollectObject(obj)
     local char = lp.Character
     if char and char:FindFirstChild("HumanoidRootPart") then
         local hrp = char.HumanoidRootPart
-        local distance = (hrp.Position - obj.Position).Magnitude
-        if distance > 30 then
+        local dist = (hrp.Position - obj.Position).Magnitude
+        if dist > 25 then
             hrp.CFrame = CFrame.new(obj.Position + Vector3.new(0, 2, 0))
             task.wait(0.1)
         end
@@ -93,42 +167,45 @@ local function CollectObject(obj)
 end
 
 local function CollectAllNearby()
-    local collectibles = GetCollectibles()
-    local collected = 0
-    for _, obj in ipairs(collectibles) do
-        if not FarmState.CollectedObjects[obj] or os.time() - FarmState.CollectedObjects[obj] > 5 then
-            local success = CollectObject(obj)
-            if success then collected = collected + 1 end
+    local items = GetCollectibles()
+    local count = 0
+    for _, obj in ipairs(items) do
+        if not FarmState.CollectedObjects[obj] or os.time() - FarmState.CollectedObjects[obj] > 3 then
+            if CollectObject(obj) then
+                count = count + 1
+            end
             task.wait(FarmState.CollectInterval)
         end
     end
-    return collected
+    return count
 end
 
 -- ================================================================
--- PHẦN 6: AUTO FARM - BUILD ENGINE
+-- BUILD ENGINE
 -- ================================================================
 
 local function GetBuildables()
-    local buildables = {}
+    local items = {}
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("BasePart") or obj:IsA("Model") then
-            if obj.Name:find("Build") or obj.Name:find("Construct") or obj.Name:find("Upgrade") or obj.Name:find("Structure") then
+            local name = obj.Name:lower()
+            if name:find("build") or name:find("construct") or name:find("upgrade") or 
+               name:find("structure") or name:find("place") then
                 if not obj:FindFirstChild("Built") and obj.Parent ~= lp.Character then
-                    table.insert(buildables, obj)
+                    table.insert(items, obj)
                 end
             end
         end
     end
-    return buildables
+    return items
 end
 
 local function BuildStructure(obj)
     local char = lp.Character
     if char and char:FindFirstChild("HumanoidRootPart") then
         local hrp = char.HumanoidRootPart
-        local position = obj.Position or obj:GetPivot().Position
-        hrp.CFrame = CFrame.new(position + Vector3.new(0, 3, 0))
+        local pos = obj.Position or obj:GetPivot().Position
+        hrp.CFrame = CFrame.new(pos + Vector3.new(0, 3, 0))
         task.wait(0.2)
         FireRemote("build", obj)
         FarmState.PendingBuilds[obj] = os.time() + 2
@@ -138,42 +215,60 @@ local function BuildStructure(obj)
 end
 
 local function BuildAllAvailable()
-    local buildables = GetBuildables()
-    local built = 0
-    for _, obj in ipairs(buildables) do
+    local items = GetBuildables()
+    local count = 0
+    for _, obj in ipairs(items) do
         if not FarmState.PendingBuilds[obj] or os.time() > FarmState.PendingBuilds[obj] then
-            local success = BuildStructure(obj)
-            if success then built = built + 1 end
+            if BuildStructure(obj) then
+                count = count + 1
+            end
             task.wait(FarmState.BuildInterval)
         end
     end
-    return built
+    return count
 end
 
 -- ================================================================
--- PHẦN 7: AUTO REBIRTH ENGINE
+-- REBIRTH ENGINE
 -- ================================================================
 
 local function GetRebirthCount()
     local stats = lp:FindFirstChild("leaderstats")
     if stats then
-        local rb = stats:FindFirstChild("Rebirths") or stats:FindFirstChild("Rebirth")
-        if rb then return rb.Value end
-    end
-    local playerData = lp:FindFirstChild("PlayerData")
-    if playerData then
-        local rb = playerData:FindFirstChild("Rebirths") or playerData:FindFirstChild("TotalRebirths")
-        if rb then return rb.Value end
+        for _, child in ipairs(stats:GetChildren()) do
+            local name = child.Name:lower()
+            if name:find("rebirth") or name:find("prestige") then
+                return child.Value
+            end
+        end
     end
     return FarmState.CurrentRebirths
 end
 
+local function CheckRebirthCondition()
+    local stats = lp:FindFirstChild("leaderstats")
+    if stats then
+        for _, child in ipairs(stats:GetChildren()) do
+            local name = child.Name:lower()
+            if name:find("level") or name:find("stage") then
+                if child.Value >= FarmState.RebirthThreshold then
+                    return true
+                end
+            end
+        end
+    end
+    return false
+end
+
 local function PerformRebirth()
-    local rebirths = GetRebirthCount()
-    FarmState.CurrentRebirths = rebirths
+    FarmState.CurrentRebirths = GetRebirthCount()
     
+    -- Thử các cách trigger rebirth
     FireRemote("rebirth", "trigger")
     FireRemote("rebirth", "confirm")
+    FireRemote("Rebirth", "Start")
+    FireRemote("Prestige", "Start")
+    
     task.wait(2)
     
     if FarmState.TargetSkill then
@@ -185,19 +280,8 @@ local function PerformRebirth()
     return true
 end
 
-local function CheckRebirthCondition()
-    local stats = lp:FindFirstChild("leaderstats")
-    if stats then
-        local level = stats:FindFirstChild("Level")
-        if level and level.Value >= FarmState.RebirthThreshold then
-            return true
-        end
-    end
-    return false
-end
-
 -- ================================================================
--- PHẦN 8: SKILL MANAGEMENT (TỪ GITHUB)
+-- SKILL LISTS
 -- ================================================================
 
 local powers = {
@@ -227,27 +311,209 @@ local rebirthSkills = {
     "Undead Staff", "Cruel Sun", "Cold Slap", "Time Slap","Sonar","Cosmic Anvil",
 }
 
-local function EquipSkill(skillName)
-    if Remote then
-        Remote:FireServer("equip_mystery_spell", skillName)
-        return true
-    end
-    return false
-end
-
 -- ================================================================
--- PHẦN 9: FARM CYCLE CONTROLLER (KẾT HỢP FARM + REBIRTH)
+-- FARM CYCLE
 -- ================================================================
 
 local function RunFarmCycle()
     while FarmState.Active do
-        -- PHASE 1: Collect
         if FarmState.CollectAll then
-            local collected = CollectAllNearby()
-            if collected > 0 then
-                -- Có thể thêm thông báo nếu cần
-            end
+            local count = CollectAllNearby()
             task.wait(0.2)
+        end
+        
+        if FarmState.BuildAll then
+            local count = BuildAllAvailable()
+            task.wait(0.2)
+        end
+        
+        if FarmState.AutoRebirthEnabled and CheckRebirthCondition() then
+            PerformRebirth()
+            task.wait(2)
+        end
+        
+        task.wait(0.1)
+    end
+end
+
+-- ================================================================
+-- TẠO UI (NẾU WINDUI KHÔNG HOẠT ĐỘNG)
+-- ================================================================
+
+local UI
+
+if type(WindUI) == "table" and WindUI.Frame then
+    -- UI đơn giản đã được tạo
+    UI = WindUI
+    
+    local isFarming = false
+    
+    UI.BtnFarm.MouseButton1Click:Connect(function()
+        isFarming = not isFarming
+        FarmState.Active = isFarming
+        UI.BtnFarm.Text = isFarming and "Stop Farm" or "Start Farm"
+        UI.Status.Text = isFarming and "Status: Farming" or "Status: Stopped"
+        UI.Info.Text = string.format("Farm: %s\nRebirth: %s", 
+            isFarming and "On" or "Off",
+            FarmState.AutoRebirthEnabled and "On" or "Off")
+        
+        if isFarming then
+            task.spawn(RunFarmCycle)
+        end
+    end)
+    
+    UI.BtnRebirth.MouseButton1Click:Connect(function()
+        PerformRebirth()
+        UI.Status.Text = "Status: Rebirth executed!"
+        task.wait(1)
+        UI.Status.Text = FarmState.Active and "Status: Farming" or "Status: Stopped"
+    end)
+    
+else
+    -- Tạo UI với WindUI nếu có
+    if type(WindUI) == "table" and WindUI.CreateWindow then
+        local Window = WindUI:CreateWindow({
+            Title = "Auto Farm + Rebirth",
+            Author = "EPT",
+            Size = UDim2.fromOffset(500, 450),
+            Theme = "Dark",
+        })
+        
+        -- Farm Tab
+        local FarmTab = Window:Tab({ Title = "Farm", Icon = "solar:hammer-bold" })
+        
+        FarmTab:Toggle({
+            Title = "Enable Auto Farm",
+            Callback = function(state)
+                FarmState.Active = state
+                if state then
+                    task.spawn(RunFarmCycle)
+                end
+            end
+        })
+        
+        FarmTab:Slider({
+            Title = "Collect Interval",
+            Step = 0.1,
+            Value = { Min = 0.1, Max = 2.0, Default = 0.5 },
+            Callback = function(v) FarmState.CollectInterval = v end
+        })
+        
+        FarmTab:Slider({
+            Title = "Build Interval",
+            Step = 0.1,
+            Value = { Min = 0.2, Max = 3.0, Default = 1.0 },
+            Callback = function(v) FarmState.BuildInterval = v end
+        })
+        
+        FarmTab:Button({
+            Title = "Force Collect",
+            Callback = function()
+                local count = CollectAllNearby()
+                WindUI:Notify({ Title = "Collected", Content = count .. " items" })
+            end
+        })
+        
+        FarmTab:Button({
+            Title = "Force Build",
+            Callback = function()
+                local count = BuildAllAvailable()
+                WindUI:Notify({ Title = "Built", Content = count .. " structures" })
+            end
+        })
+        
+        -- Rebirth Tab
+        local RebirthTab = Window:Tab({ Title = "Rebirth", Icon = "solar:refresh-bold" })
+        
+        RebirthTab:Toggle({
+            Title = "Enable Auto Rebirth",
+            Callback = function(state)
+                FarmState.AutoRebirthEnabled = state
+            end
+        })
+        
+        RebirthTab:Slider({
+            Title = "Level Threshold",
+            Step = 1,
+            Value = { Min = 1, Max = 500, Default = 100 },
+            Callback = function(v) FarmState.RebirthThreshold = v end
+        })
+        
+        RebirthTab:Button({
+            Title = "Manual Rebirth",
+            Color = Color3.fromHex("#FF4B30"),
+            Callback = function()
+                PerformRebirth()
+                WindUI:Notify({ Title = "Rebirth", Content = "Executed!" })
+            end
+        })
+        
+        -- Powers Tab
+        local PowersTab = Window:Tab({ Title = "Powers", Icon = "solar:magic-stick-bold" })
+        
+        for category, list in pairs(powers) do
+            PowersTab:Section({ Title = category })
+            for _, skill in ipairs(list) do
+                PowersTab:Button({
+                    Title = skill,
+                    Callback = function()
+                        FireRemote("equip_mystery_spell", skill)
+                        WindUI:Notify({ Title = "Equipped", Content = skill })
+                    end
+                })
+            end
+        end
+        
+        -- Settings Tab
+        local SettingsTab = Window:Tab({ Title = "Settings", Icon = "solar:settings-bold" })
+        
+        SettingsTab:Button({
+            Title = "Unload",
+            Color = Color3.fromHex("#FF4B30"),
+            Callback = function()
+                FarmState.Active = false
+                FarmState.AutoRebirthEnabled = false
+                Window:Destroy()
+            end
+        })
+        
+        Window:SelectTab(1)
+    end
+end
+
+-- ================================================================
+-- PLAYER SPEED/JUMP (TÙY CHỌN)
+-- ================================================================
+
+local speed = 16
+local jump = 50
+local lockSpeed = false
+local lockJump = false
+
+RunService.Stepped:Connect(function()
+    local char = lp.Character
+    if char and char:FindFirstChild("Humanoid") then
+        local hum = char.Humanoid
+        if lockSpeed then hum.WalkSpeed = speed end
+        if lockJump then hum.JumpPower = jump end
+    end
+end)
+
+-- ================================================================
+-- NOTIFICATION
+-- ================================================================
+
+print("Auto Farm + Rebirth loaded!")
+print("Đã sửa lỗi và sẵn sàng hoạt động.")
+
+-- Thông báo nếu có WindUI
+if type(WindUI) == "table" and WindUI.Notify then
+    WindUI:Notify({
+        Title = "Auto Farm + Rebirth",
+        Content = "Script đã được sửa và hoạt động!",
+        Duration = 3
+    })
+end0.2)
         end
         
         -- PHASE 2: Build
